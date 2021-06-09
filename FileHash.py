@@ -1,14 +1,16 @@
 #!/usr/bin/env python
 
-import sys
+import time
 import hashlib
 import glob
 import os
 import csv
+from collections import defaultdict
 
 #BUF_SIZE = 67108864
 #BUF_SIZE = 268435456
-BUF_SIZE=65536
+#BUF_SIZE=65536
+BUF_SIZE=5242880
 BLOCK_SIZE=100
 
 class FileHash:
@@ -25,6 +27,7 @@ class FileHash:
     def compute_file_hash(self):
         sha1 = hashlib.sha1()
 
+        lastwritetime = time.time()
         with open(self.filename, 'rb') as file:
             readcount = 1
             while True:
@@ -35,6 +38,10 @@ class FileHash:
 
                 if readcount < 4096:
                     readcount += 1
+                
+                if second_passed(lastwritetime):
+                    print('.', end='',flush=True)
+                    lastwritetime = time.time()
     
         self.sha1 = sha1.hexdigest()
 
@@ -93,8 +100,15 @@ def get_all_files():
         if count == 1000:
             break
 
-def get_all_hash():
-    get_hash_in_path("D:\\Nana\\OneDrive\\Sorted", "D:\\testpy.csv")
+def second_passed(oldtime):
+    currenttime = time.time()
+    elapsed = (int)(currenttime-oldtime)
+    return True if elapsed > 1 else False
+
+def five_seconds_passed(oldtime):
+    currenttime = time.time()
+    elapsed = (int)(currenttime-oldtime)
+    return True if elapsed> 5 else False
 
 def get_hash_in_path(path, csvfilename, recursive=True):
     "Get hash of all files recursively in the given path and store details in the specified filename"
@@ -105,39 +119,50 @@ def get_hash_in_path(path, csvfilename, recursive=True):
 
     csvfile = CSVFile(csvfilename, fieldnames=["Hash", "Filename"])
 
+    starttime = time.time()
+
     if csvfile.exists():
         # create a map of already visited files
         rows = csvfile.get_rows()
         for row in rows:
             visitmap[row['Filename']] = row
 
-    for filename in glob.iglob(path + '**/**', recursive=recursive):
-        if os.path.isdir(filename):
-            continue
+    lastwritetime = time.time()
 
-        # if file has already been processed, skip
-        if filename in visitmap.keys():
-            continue
+    for path, subdirs, files in os.walk(path):
+        for name in files:
+            filename = os.path.join(path, name)    
+    #for filename in glob.iglob(path + '**/**', recursive=recursive):
+            if second_passed(lastwritetime) and hashes:
+                # write current objects to csv file and print on screen
+                csvfile.append(hashes)
+                print(printstr, flush=True)
+                hashes = []
+                printstr = ''
+                lastwritetime = time.time()
 
-        count +=1
+            if os.path.isdir(filename):
+                continue
 
-        f = FileHash(filename)
-        f.compute_file_hash()
+            # if file has already been processed, skip
+            if filename in visitmap.keys():
+                continue
 
-        hashes.append({"Hash":f.sha1, "Filename":f.filename})
-        printstr += f.filename + "\n"
+            f = FileHash(filename)
+            f.compute_file_hash()
 
-        if count == 10:
-            # write 100 objects to csv file and print on screen
-            csvfile.append(hashes)
-            print(printstr)
-            hashes = []
-            printstr = ''
-            count = 0
-    
+            hashes.append({"Hash":f.sha1, "Filename":f.filename})
+            printstr += f.filename + "\n"
+            
     # write the final set
     csvfile.append(hashes)
     print(printstr)
+
+    endtime = time.time()
+    elapsed = endtime - starttime
+    elapsedtime = time.gmtime(elapsed)
+
+    print("Completed in {0}:{1}:{2}".format(elapsedtime.tm_hour, elapsedtime.tm_min, elapsedtime.tm_sec))
 
 def find_duplicates():
     csvfile = CSVFile("D:\\testpy.csv", fieldnames=["Hash", "Filename"])
@@ -161,8 +186,49 @@ def find_duplicates():
             if len(filemap[hash]) > 1:
                 print(filemap[hash])
 
+def find_missing_source(sourcepath, destpath):
+    csvsource = CSVFile(sourcepath, fieldnames=["Hash", "Filename"])
+    if not csvsource.exists():
+        return
+    sourcerows = csvsource.get_rows()
+
+    csvdest = CSVFile(destpath, fieldnames=["Hash", "Filename"])
+    if not csvdest.exists():
+        return
+    destrows = csvdest.get_rows()
+
+    sourcemap = defaultdict(list)
+    for row in sourcerows:
+        sourcemap[row["Hash"]].append(row["Filename"])
+
+    destmap = defaultdict(list)
+    for row in destrows:
+        destmap[row["Hash"]].append(row["Filename"])
+
+    for hash in sourcemap.keys():
+        if not hash in destmap.keys():
+            print(sourcemap[hash])
+
 
 #test()
 #get_all_files()
-get_all_hash()
+#get_all_hash()
+#get_hash_in_path("D:\\Nana\\OneDrive\\Orig", "D:\\Orig.csv")
+#get_hash_in_path("D:\\Nana\\OneDrive\\Laptop_Nana_Personal", "D:\\laptop_nana_personal.csv")
+#find_missing_source("D:\\Orig.csv", "D:\\Testpy.csv")
+#find_missing_source("D:\\laptop_nana_personal.csv", "D:\\sorted.csv")
 #find_duplicates()
+#get_hash_in_path("D:\\Nana\\OneDrive\\Sorted", "D:\\sorted.csv")
+#get_hash_in_path("C:\\dest\\Photos\\FromPaapaGift\\7D\\Edited", "c:\dest\photos_frompaapagift_7d_edited.csv")
+#get_hash_in_path("C:\\dest\\Photos\\FromPaapaGift\\7D\\Original", "c:\dest\photos_frompaapagift_7d_original.csv")
+#get_hash_in_path("C:\\dest\\Photos\\FromPaapaGift\\7D\\", "c:\\dest\\photos_frompaapagift_7d_album_and_staging.csv")
+#get_hash_in_path("C:\\dest\\Photos\\FromPaapaGift\\Anaga", "c:\\dest\\photos_frompaapagift_Anaga.csv")
+#get_hash_in_path("C:\\dest\\Photos\\FromPaapaGift", "c:\\dest\\photos_frompaapagift.csv")
+#get_hash_in_path("F:\\Photos.old", "c:\\dest\\photos.old.csv")
+get_hash_in_path("z:\\Photos", "c:\\dest\\nas_photos.csv")
+#find_missing_source("c:\\dest\\photos_frompaapagift_7d_original.csv", "d:\\sorted.csv")
+#find_missing_source("c:\\dest\\photos_frompaapagift_7d_edited.csv", "d:\\sorted.csv")
+#find_missing_source("c:\\dest\\photos_frompaapagift_7d_album_and_staging.csv", "d:\\sorted.csv")
+#find_missing_source("c:\\dest\\photos_frompaapagift_anaga.csv", "d:\\sorted.csv")
+#find_missing_source("c:\\dest\\photos_frompaapagift.csv", "d:\\sorted.csv")
+#find_missing_source("c:\\dest\\photos.old.csv", "D:\\sorted.csv")
